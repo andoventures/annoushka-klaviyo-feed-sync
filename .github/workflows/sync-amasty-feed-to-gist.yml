@@ -1,0 +1,99 @@
+name: Sync Amasty Feed To Gist
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 6 * * *"
+
+jobs:
+  sync-feed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Fetch Amasty XML feed
+        run: |
+          curl -L --fail --silent --show-error \
+            "${AMASTY_FEED_URL}" \
+            -o KlaviyoFeedUK.xml
+
+          test -s KlaviyoFeedUK.xml
+
+          head -n 1 KlaviyoFeedUK.xml
+
+        env:
+          AMASTY_FEED_URL: ${{ secrets.AMASTY_FEED_URL }}
+
+      - name: Basic XML sanity check
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          path = "KlaviyoFeedUK.xml"
+
+          tree = ET.parse(path)
+          root = tree.getroot()
+
+          if root.tag != "products":
+              raise SystemExit(f"Unexpected root tag: {root.tag}")
+
+          products = root.findall(".//product")
+          if not products:
+              raise SystemExit("No <product> nodes found.")
+
+          print(f"XML OK. Products found: {len(products)}")
+          PY
+
+      - name: Update Gist file
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          gist_id = os.environ["GIST_ID"]
+          token = os.environ["GIST_TOKEN"]
+          filename = os.environ.get("GIST_FILENAME", "KlaviyoFeedUK.xml")
+
+          with open("KlaviyoFeedUK.xml", "r", encoding="utf-8") as f:
+              xml_content = f.read()
+
+          payload = {
+              "description": "Auto-updated Annoushka Klaviyo enriched product feed",
+              "files": {
+                  filename: {
+                      "content": xml_content
+                  }
+              }
+          }
+
+          request = urllib.request.Request(
+              f"https://api.github.com/gists/{gist_id}",
+              data=json.dumps(payload).encode("utf-8"),
+              method="PATCH",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json",
+                  "User-Agent": "klaviyo-feed-sync"
+              }
+          )
+
+          try:
+              with urllib.request.urlopen(request) as response:
+                  body = response.read().decode("utf-8")
+                  data = json.loads(body)
+                  print("Gist updated successfully.")
+                  print("HTML URL:", data.get("html_url"))
+
+                  files = data.get("files", {})
+                  if filename in files:
+                      print("Raw URL:", files[filename].get("raw_url"))
+          except urllib.error.HTTPError as e:
+              print("GitHub API error:", e.code)
+              print(e.read().decode("utf-8"))
+              raise
+          PY
+        env:
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_FILENAME: KlaviyoFeedUK.xml
