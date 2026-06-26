@@ -12,14 +12,16 @@ jobs:
     steps:
       - name: Fetch Amasty XML feed
         run: |
-          curl -L --fail --silent --show-error \
+          curl -L --fail --silent --show-error --compressed \
+            -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36" \
+            -H "Accept: application/xml,text/xml,*/*;q=0.9" \
+            -H "Referer: https://www.annoushka.com/" \
             "${AMASTY_FEED_URL}" \
             -o KlaviyoFeedUK.xml
-
+      
           test -s KlaviyoFeedUK.xml
-
+      
           head -n 1 KlaviyoFeedUK.xml
-
         env:
           AMASTY_FEED_URL: ${{ secrets.AMASTY_FEED_URL }}
 
